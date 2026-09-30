@@ -1,0 +1,62 @@
+import { Injectable, signal } from '@angular/core';
+import { Camera, CameraResultType, CameraSource, Photo } from '@capacitor/camera';
+import { UserPhoto } from '../models/photo.model';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class PhotoService {
+  // Estado reactivo con Signals para almacenar el listado de fotos
+  private photosSignal = signal<UserPhoto[]>([]);
+  public readonly photos = this.photosSignal.asReadonly();
+
+  async takeNewPhoto(isHighDef: boolean): Promise<{ success: boolean; reason?: 'permission_denied' | 'cancelled' | 'error' }> {
+    try {
+      // 1. Verificar y pedir permisos
+      const checkStatus = await Camera.checkPermissions();
+      if (checkStatus.camera !== 'granted' || checkStatus.photos !== 'granted') {
+        const request = await Camera.requestPermissions({ permissions: ['camera', 'photos'] });
+        if (request.camera !== 'granted' && request.photos !== 'granted') {
+          return { success: false, reason: 'permission_denied' };
+        }
+      }
+
+      // 2. Definir calidad según el interruptor (Alta def o Ahorro de datos)
+      const imageQuality = isHighDef ? 95 : 60;
+      const targetWidth = isHighDef ? 1920 : 800;
+
+      // 3. Abrir menú para tomar foto o elegir de la galería
+      const capturedPhoto: Photo = await Camera.getPhoto({
+        resultType: CameraResultType.Uri,
+        source: CameraSource.Prompt,
+        quality: imageQuality,
+        width: targetWidth,
+        allowEditing: false,
+        promptLabelHeader: 'Seleccionar Origen',
+        promptLabelPhoto: 'Elegir de la Galería',
+        promptLabelPicture: 'Tomar Fotografía'
+      });
+
+      // 4. Mapear y agregar la nueva foto al arreglo de fotos
+      const newPhoto: UserPhoto = {
+        filepath: `${Date.now()}.${capturedPhoto.format}`,
+        webPath: capturedPhoto.webPath,
+        format: capturedPhoto.format
+      };
+
+      this.photosSignal.update(photos => [newPhoto, ...photos]);
+      return { success: true };
+
+    } catch (error: any) {
+      if (error?.message?.includes('cancelled') || error?.message?.includes('User cancelled')) {
+        return { success: false, reason: 'cancelled' };
+      }
+      return { success: false, reason: 'error' };
+    }
+  }
+
+  // Eliminar una foto por su índice
+  deletePhoto(index: number): void {
+    this.photosSignal.update(photos => photos.filter((_, i) => i !== index));
+  }
+}
